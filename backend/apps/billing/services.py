@@ -31,7 +31,7 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.db.models import Max
+from django.db.models import Max, Q
 from django.utils import timezone
 
 from apps.accounts.models import User
@@ -71,10 +71,33 @@ class Subscription:
     days_left: int
     total_days: int
     last_paid: Payment | None     # آخرین خرید — مبنای صورت‌حسابِ تمدید
+    #: اشتراکِ همیشگی (ادمین‌ها و گروهِ «اشتراکِ همیشگی») — بی‌تاریخِ پایان، بی‌تمدید، بی‌یادآوری
+    lifetime: bool = False
 
     @property
     def expiring_soon(self) -> bool:
-        return self.active and self.days_left <= EXPIRY_NOTICE_DAYS
+        return self.active and not self.lifetime and self.days_left <= EXPIRY_NOTICE_DAYS
+
+
+# ------------------------------------------------------------------ اشتراکِ همیشگی
+#: حساب‌های نمایشی و بازبینی که همیشه اشتراکِ کامل دارند؛ عضویت از پنلِ جنگو (کاربر ← گروه‌ها).
+#: عضویت در این گروه دسترسیِ ادمین نمی‌دهد (is_staff جداست).
+LIFETIME_GROUP = "اشتراکِ همیشگی"
+ADMIN_Q = Q(is_superuser=True) | Q(is_staff=True) | Q(role=User.Role.TEAM_ADMIN)
+
+
+def lifetime_access(child: User) -> bool:
+    """
+    آیا این فرزند همیشه اشتراکِ کامل دارد؟ بله اگر خودش یا یکی از والدهای وصلش ادمین است، شماره‌اش
+    شماره‌ی یک حسابِ ادمین است (حسابِ والد/کودکِ خودِ ادمین‌ها نقشِ جدا دارد)، یا عضوِ گروهِ «اشتراکِ همیشگی» است.
+    """
+    from apps.parent.models import ParentChild
+
+    parents = ParentChild.objects.filter(child=child, is_active=True).values("parent_id")
+    accounts = User.objects.filter(Q(pk=child.pk) | Q(pk__in=parents))
+    if accounts.filter(ADMIN_Q).exists() or accounts.filter(groups__name=LIFETIME_GROUP).exists():
+        return True
+    return User.objects.filter(phone__in=accounts.values("phone")).filter(ADMIN_Q).exists()
 
 
 def subscription(child: User, now: datetime | None = None) -> Subscription:
@@ -82,6 +105,8 @@ def subscription(child: User, now: datetime | None = None) -> Subscription:
     paid = list(Payment.objects.filter(child=child, status=Payment.Status.PAID,
                                        ends_at__isnull=False).select_related("plan"))
     last_paid = max(paid, key=lambda p: p.paid_at or p.created_at, default=None)
+    if lifetime_access(child):
+        return Subscription(True, None, None, None, 0, 0, last_paid, lifetime=True)
     future = [p for p in paid if p.ends_at > now]
     if not future:
         return Subscription(False, None, None, None, 0, 0, last_paid)
@@ -172,6 +197,9 @@ def _factor_number() -> str:
 def start_checkout(parent: User, child: User, plan: Plan, *, host: str = "") -> Payment:
     if not plan.is_active:
         raise CheckoutError("این پلن دیگر فروخته نمی‌شود.")
+    if lifetime_access(child):
+        # پولی برای چیزی که همین حالا همیشگی است گرفته نشود
+        raise CheckoutError("این فرزند اشتراکِ همیشگی دارد و خرید لازم نیست.")
     recent = Payment.objects.filter(payer=parent, status=Payment.Status.PENDING,
                                     created_at__gte=timezone.now() - timedelta(hours=1)).count()
     if recent >= MAX_PENDING_PER_HOUR:

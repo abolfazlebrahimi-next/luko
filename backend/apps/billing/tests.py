@@ -606,3 +606,55 @@ class GiftTests(TestCase):
                                       amount_rial=1990000, factor_number="LKREAL1", status="paid")
         with self.assertRaises(CheckoutError):
             revoke_gift(real)
+
+
+class LifetimeAccessTests(BillingTestBase):
+    """ادمین‌ها و گروهِ «اشتراکِ همیشگی» همیشه اشتراکِ کامل دارند — بی‌خرید، بی‌تاریخِ پایان، بی‌یادآوری."""
+
+    def lifetime_group(self):
+        from django.contrib.auth.models import Group
+
+        return Group.objects.get_or_create(name=services.LIFETIME_GROUP)[0]
+
+    def test_normal_child_is_unaffected(self):
+        self.assertFalse(services.subscription(self.child).lifetime)
+        self.assertFalse(services.subscription(self.child).active)
+
+    def test_group_member_parent_gets_lifetime_without_admin_access(self):
+        self.parent.groups.add(self.lifetime_group())
+        sub = services.subscription(self.child)
+        self.assertTrue(sub.active and sub.lifetime)
+        self.assertFalse(sub.expiring_soon)
+        row = self.api.get("/api/v1/billing/children").json()["data"][0]
+        self.assertEqual((row["status"], row["lifetime"], row["planTitle"], row["renewal"]), ("active", True, "همیشگی", None))
+        self.parent.refresh_from_db()
+        self.assertFalse(self.parent.is_staff or self.parent.is_superuser)   # پنلِ ادمین نه
+        # پولی برای اشتراکِ همیشگی گرفته نمی‌شود
+        self.assertEqual(self.checkout().status_code, 400)
+        self.assertFalse(Payment.objects.filter(child=self.child).exists())
+        # یادآوریِ «رو به پایان/تمام شد» هم ندارد
+        sync_notifications(self.parent)
+        self.assertFalse(Notification.objects.filter(user=self.parent, kind=Notification.Kind.BILLING).exists())
+
+    def test_admin_parent_and_admins_own_phone(self):
+        # حسابِ والدِ کسی که شماره‌اش شماره‌ی یک ادمین است (ادمین با نقشِ جدا)
+        User.objects.create(phone=self.guardian.phone, role=User.Role.TEAM_ADMIN, is_staff=True)
+        self.assertTrue(services.subscription(self.child).lifetime)
+        # بچه‌ی والدِ دیگر هنوز رایگان
+        self.assertFalse(services.subscription(self.stranger_child).active)
+
+    def test_child_linked_to_admin_or_inactive_link(self):
+        admin = User.objects.create(phone="09120000077", role=User.Role.TEAM_ADMIN, is_staff=True, is_superuser=True)
+        link = ParentChild.objects.create(parent=admin, child=self.stranger_child)
+        self.assertTrue(services.subscription(self.stranger_child).lifetime)
+        # پیوندِ قطع‌شده اشتراکِ همیشگی نمی‌دهد
+        link.is_active = False
+        link.save(update_fields=["is_active"])
+        self.assertFalse(services.subscription(self.stranger_child).active)
+
+    def test_premium_features_follow_lifetime(self):
+        from apps.ai.assistant import is_premium
+
+        self.assertFalse(is_premium(self.child))
+        self.parent.groups.add(self.lifetime_group())
+        self.assertTrue(is_premium(self.child))

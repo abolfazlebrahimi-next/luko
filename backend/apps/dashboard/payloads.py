@@ -194,7 +194,7 @@ def detail(user: User, now: datetime, viewer: User) -> dict:
 
     if role["key"] == "student":
         sub = subscription(user, now)
-        data["subscription"].update({"plan": sub.plan.plan_title if sub.plan else "",
+        data["subscription"].update({"plan": "همیشگی" if sub.lifetime else sub.plan.plan_title if sub.plan else "",
                                      "total_days": sub.total_days})
         data["parents"] = [
             {"id": link.parent_id, "name": full_name(link.parent) or "بی‌نام", "phone": link.parent.phone}

@@ -32,6 +32,8 @@ export interface ChildSubscription {
   totalDays: number;
   /** ۷ روز یا کمتر مانده */
   expiringSoon: boolean;
+  /** اشتراکِ همیشگی (ادمین‌ها و حساب‌های گروهِ «اشتراکِ همیشگی») — بی‌تاریخِ پایان، بی‌تمدید */
+  lifetime?: boolean;
   /** صورت‌حسابِ تمدید: همان پلنِ آخرین خرید (برای کسی که هنوز نخریده null) */
   renewal: Renewal | null;
 }

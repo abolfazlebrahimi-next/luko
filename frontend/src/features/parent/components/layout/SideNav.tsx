@@ -82,7 +82,7 @@ export function SideNav({
           <CrownIcon size={18} strokeWidth={2} />
           <span>
             <b>اشتراکِ {childName} فعال است</b>
-            <small>{fa(subscription?.daysLeft ?? 0)} روز مانده</small>
+            <small>{subscription?.lifetime ? 'همیشگی' : `${fa(subscription?.daysLeft ?? 0)} روز مانده`}</small>
           </span>
         </button>
       ) : (

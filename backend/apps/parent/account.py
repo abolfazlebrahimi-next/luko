@@ -75,7 +75,8 @@ def child_profile(link: ParentChild) -> dict:
         },
         "subscription": {
             "active": sub.active,
-            "plan_title": sub.plan.plan_title if sub.active and sub.plan else "رایگان",
+            "lifetime": sub.lifetime,
+            "plan_title": "همیشگی" if sub.lifetime else sub.plan.plan_title if sub.active and sub.plan else "رایگان",
             "days_left": sub.days_left if sub.active else 0,
             "ends_fa": fa_date(timezone.localtime(sub.ends_at).date(), with_year=True) if sub.active and sub.ends_at else "",
         },

@@ -118,7 +118,7 @@ export function SettingsHub() {
                       <small>پایه‌ی {fa(child.grade)}{child.school ? ` · ${child.school}` : ''}</small>
                     </span>
                     <span className={styles.plan} data-premium={premium || undefined}>
-                      {premium ? <><CrownIcon size={12} strokeWidth={2.2} aria-hidden /> {fa(sub?.daysLeft ?? 0)} روز</> : 'رایگان'}
+                      {premium ? <><CrownIcon size={12} strokeWidth={2.2} aria-hidden /> {sub?.lifetime ? 'همیشگی' : `${fa(sub?.daysLeft ?? 0)} روز`}</> : 'رایگان'}
                     </span>
                     <HiOutlineChevronLeft className={styles.chev} aria-hidden />
                   </button>

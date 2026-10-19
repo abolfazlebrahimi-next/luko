@@ -83,7 +83,8 @@ export function ChildProfilePage({ childId }: Props) {
         </div>
         <span className={styles.plan} data-premium={profile.subscription.active || undefined}>
           <CrownIcon size={14} strokeWidth={2.2} aria-hidden />
-          {profile.subscription.active ? `${fa(profile.subscription.daysLeft)} روز اشتراک` : 'پلنِ رایگان'}
+          {profile.subscription.lifetime ? 'اشتراکِ همیشگی'
+            : profile.subscription.active ? `${fa(profile.subscription.daysLeft)} روز اشتراک` : 'پلنِ رایگان'}
         </span>
       </section>
 

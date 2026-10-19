@@ -73,15 +73,17 @@ def status_payload(child) -> dict:
         "child_id": str(child.id),
         "child_name": child_name(child),
         "status": "active" if sub.active else "free",
+        # همیشگی: بی‌تاریخِ پایان و بی‌صورت‌حسابِ تمدید
+        "lifetime": sub.lifetime,
         "plan_code": current.plan.code if current else None,
-        "plan_title": current.plan_title if current else "رایگان",
+        "plan_title": "همیشگی" if sub.lifetime else current.plan_title if current else "رایگان",
         "starts_at": sub.chain_start.isoformat() if sub.chain_start else None,
         "ends_at": sub.ends_at.isoformat() if sub.ends_at else None,
         "ends_at_fa": _fa_date(sub.ends_at),
         "days_left": sub.days_left,
         "total_days": sub.total_days,
         "expiring_soon": sub.expiring_soon,
-        "renewal": {
+        "renewal": None if sub.lifetime else {
             "plan_code": renew.code,
             "plan_title": renew.title,
             "amount_toman": renew.price_toman,

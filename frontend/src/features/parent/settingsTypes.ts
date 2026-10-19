@@ -30,7 +30,7 @@ export interface ChildProfile {
     paintings: number;
     checkins: number;
   };
-  subscription: { active: boolean; planTitle: string; daysLeft: number; endsFa: string };
+  subscription: { active: boolean; lifetime?: boolean; planTitle: string; daysLeft: number; endsFa: string };
 }
 
 export type TicketStatus = 'open' | 'answered' | 'closed';

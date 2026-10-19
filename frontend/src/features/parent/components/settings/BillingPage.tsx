@@ -120,7 +120,7 @@ export function BillingPage() {
               <button key={item.id} type="button" role="tab" aria-selected={on} data-active={on || undefined}
                 onClick={() => { setSelected(null); env.onChildChange(item.id); }}>
                 <i aria-hidden>{childName(item).charAt(0)}</i>
-                <span><b>{childName(item)}</b><small>{s?.status === 'active' ? `${faNumber(s.daysLeft)} روز اشتراک` : 'پلنِ رایگان'}</small></span>
+                <span><b>{childName(item)}</b><small>{s?.lifetime ? 'اشتراکِ همیشگی' : s?.status === 'active' ? `${faNumber(s.daysLeft)} روز اشتراک` : 'پلنِ رایگان'}</small></span>
               </button>
             );
           })}
@@ -175,14 +175,15 @@ export function BillingPage() {
           })}
         </div>
         {activePlan && paying === activePlan.code && payError}
-        {activePlan && (
+        {sub?.lifetime && <p className={styles.hint}>اشتراکِ {shortName} همیشگی است؛ خرید یا تمدید لازم نیست.</p>}
+        {activePlan && !sub?.lifetime && (
           <button type="button" className={form.primary} disabled={going} onClick={() => pay(activePlan.code)}>
             <CrownIcon size={18} strokeWidth={2} aria-hidden />
             {going && paying === activePlan.code ? 'در حالِ انتقال به درگاه…'
               : `${sub?.status === 'active' ? 'تمدید با' : 'خریدِ'} اشتراکِ ${activePlan.title}، ${toman(activePlan.priceToman)}`}
           </button>
         )}
-        {sub?.status === 'active' && <p className={styles.hint}>تمدید پشتِ اشتراکِ فعلی می‌نشیند؛ روزهای باقی‌مانده از دست نمی‌رود.</p>}
+        {sub?.status === 'active' && !sub.lifetime && <p className={styles.hint}>تمدید پشتِ اشتراکِ فعلی می‌نشیند؛ روزهای باقی‌مانده از دست نمی‌رود.</p>}
         {sub?.renewal && (
           <details className={styles.compareMore}>
             <summary>با اشتراک چه چیزهایی باز است؟ <HiOutlineChevronDown aria-hidden /></summary>
@@ -236,7 +237,8 @@ function StatusHero({ sub, name }: { sub?: ChildSubscription; name: string }) {
   }
   const r = 46;
   const c = 2 * Math.PI * r;
-  const ratio = sub.totalDays > 0 ? Math.min(1, Math.max(0.03, sub.daysLeft / sub.totalDays)) : 0;
+  // همیشگی: حلقه‌ی پر، بی‌شمارشِ روز
+  const ratio = sub.lifetime ? 1 : sub.totalDays > 0 ? Math.min(1, Math.max(0.03, sub.daysLeft / sub.totalDays)) : 0;
   return (
     <section className={styles.hero} data-tone={sub.expiringSoon ? 'warn' : 'active'}>
       <div className={styles.ring}>
@@ -244,12 +246,14 @@ function StatusHero({ sub, name }: { sub?: ChildSubscription; name: string }) {
           <circle className={styles.ringTrack} cx="54" cy="54" r={r} />
           <circle className={styles.ringValue} cx="54" cy="54" r={r} strokeDasharray={`${c * ratio} ${c}`} />
         </svg>
-        <span><b>{faNumber(sub.daysLeft)}</b><small>روز مانده</small></span>
+        {sub.lifetime
+          ? <span><b>همیشه</b><small>فعال</small></span>
+          : <span><b>{faNumber(sub.daysLeft)}</b><small>روز مانده</small></span>}
       </div>
       <div>
         <span className={styles.chip}><CrownIcon size={13} strokeWidth={2.2} aria-hidden /> اشتراکِ {sub.planTitle}</span>
         <h2>{name}</h2>
-        <p>تا {sub.endsAtFa} فعال است.</p>
+        <p>{sub.lifetime ? 'اشتراکِ کامل، بی‌تاریخِ پایان.' : `تا ${sub.endsAtFa} فعال است.`}</p>
         {sub.expiringSoon && (
           <p className={styles.warn}><HiOutlineExclamationTriangle aria-hidden /> کمتر از یک هفته مانده؛ برای قطع‌نشدن، تمدید کنید.</p>
         )}

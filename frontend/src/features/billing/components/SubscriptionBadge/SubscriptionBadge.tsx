@@ -17,9 +17,11 @@ interface Props {
 export function SubscriptionBadge({ sub, childName, onClick }: Props) {
   const active = sub?.status === 'active';
   const tone = !active ? 'free' : sub.expiringSoon ? 'warn' : 'active';
-  const label = active ? `${faNumber(sub.daysLeft)} روز` : 'رایگان';
+  const label = active ? (sub.lifetime ? 'همیشگی' : `${faNumber(sub.daysLeft)} روز`) : 'رایگان';
   const aria = active
-    ? `اشتراکِ ${sub.planTitle} ${childName}: ${faNumber(sub.daysLeft)} روز مانده، مشاهده و تمدید`
+    ? sub.lifetime
+      ? `اشتراکِ همیشگیِ ${childName}، مشاهده`
+      : `اشتراکِ ${sub.planTitle} ${childName}: ${faNumber(sub.daysLeft)} روز مانده، مشاهده و تمدید`
     : `${childName} روی پلنِ رایگان است، مشاهده‌ی پلن‌های اشتراک`;
 
   return (
