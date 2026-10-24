@@ -1,3 +1,4 @@
+import { BAZAAR_BUILD } from '@/features/billing/bazaar';
 import styles from './TrustSeals.module.css';
 
 const ENAMAD_LINK = 'https://trustseal.enamad.ir/?id=8028112&Code=6qCdfbdgMb9dFb6ERmhx6w13ggY2hHhV';
@@ -15,8 +16,10 @@ const ZIBAL_IMAGE = 'https://zibal.ir/trust/assets/1.png';
 /**
  * نمادِ اعتمادِ الکترونیکی (اینماد) و نشانِ اعتمادِ زیبال کنارِ هم. اینماد نشانی و referrerِ صفحه را می‌سنجد؛
  * برای همین `referrerPolicy="origin"` روی همان پیوند و تصویر است (سربرگِ سایت same-origin است).
+ * اپِ کافه‌بازار نشان نمی‌دهد: پرداختش با بازار است، نه زیبال، و پیوند به درگاه یا سایت در آن ممنوع است.
  */
 export function TrustSeals() {
+  if (BAZAAR_BUILD) return null;
   return (
     <div className={styles.card}>
       <div className={styles.seals}>

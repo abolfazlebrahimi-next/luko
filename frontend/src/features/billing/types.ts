@@ -9,6 +9,8 @@ export interface Plan {
   perMonthToman: number;
   /** صرفه در برابرِ خریدِ ماه‌به‌ماه (۰ برای ماهانه) */
   savingPercent: number;
+  /** شناسه‌ی همین پلن در کافه‌بازار (خرید از اپِ اندروید) */
+  bazaarSku?: string | null;
 }
 
 export interface Renewal {
@@ -34,6 +36,8 @@ export interface ChildSubscription {
   expiringSoon: boolean;
   /** اشتراکِ همیشگی (ادمین‌ها و حساب‌های گروهِ «اشتراکِ همیشگی») — بی‌تاریخِ پایان، بی‌تمدید */
   lifetime?: boolean;
+  /** اشتراکِ کافه‌بازار که خودِ بازار هر دوره تمدیدش می‌کند (لغو فقط از خودِ بازار) */
+  autoRenews?: boolean;
   /** صورت‌حسابِ تمدید: همان پلنِ آخرین خرید (برای کسی که هنوز نخریده null) */
   renewal: Renewal | null;
 }
@@ -52,6 +56,7 @@ export interface Payment {
   statusLabel: string;
   /** اشتراکِ هدیه از تیمِ لوکو (مبلغ صفر) */
   isGift?: boolean;
+  gateway?: 'zibal' | 'vandar' | 'bazaar';
   createdAtFa: string;
   paidAtFa: string;
   transId: string;
@@ -59,6 +64,11 @@ export interface Payment {
   startsAtFa: string;
   endsAtFa: string;
   message: string;
+}
+
+export interface BazaarVerifyResult {
+  payment: Payment;
+  subscription: ChildSubscription;
 }
 
 export interface CheckoutResult {

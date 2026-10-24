@@ -46,3 +46,22 @@ def notify_expiring() -> int:
     if rows:
         Notification.objects.bulk_create(rows, ignore_conflicts=True)
     return len(rows)
+
+
+@shared_task
+def refresh_bazaar_subscriptions() -> int:
+    """
+    اشتراکِ کافه‌بازار را خودِ بازار تمدید می‌کند؛ این‌جا نزدیکِ پایانِ هر دوره‌ی خودکار‌تمدیدشونده وضعیتش پرسیده
+    می‌شود تا تمدید (یا لغوِ تمدید) به اشتراکِ بچه برسد. سقفِ APIِ بازار ۵۰ هزار درخواست در روز است.
+    """
+    from .services import refresh_bazaar
+
+    now = timezone.now()
+    ids = list(Payment.objects.filter(
+        gateway=Payment.Gateway.BAZAAR, status=Payment.Status.PAID,
+        ends_at__gte=now - timedelta(days=3), ends_at__lte=now + timedelta(days=EXPIRY_NOTICE_DAYS + 1),
+        gateway_response__autoRenewing=True,
+    ).values_list("id", flat=True)[:2000])
+    for pk in ids:
+        refresh_bazaar(pk)
+    return len(ids)

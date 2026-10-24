@@ -16,6 +16,7 @@ from rest_framework.views import APIView
 from apps.common.fa import fa_date, fa_time
 from apps.parent.views import IsParent
 
+from . import bazaar
 from .models import Payment, Plan
 from .services import (
     CheckoutError,
@@ -29,6 +30,7 @@ from .services import (
     renewal_plan,
     start_checkout,
     subscription,
+    verify_bazaar_purchase,
 )
 
 
@@ -62,6 +64,8 @@ def plan_payload(plan: Plan, monthly: int | None) -> dict:
         "price_toman": plan.price_toman,
         "per_month_toman": round(plan.price_toman / months),
         "saving_percent": saving,
+        # شناسه‌ی همین پلن در کافه‌بازار (خرید از داخلِ اپِ اندروید)
+        "bazaar_sku": bazaar.sku_for(plan.code),
     }
 
 
@@ -83,7 +87,9 @@ def status_payload(child) -> dict:
         "days_left": sub.days_left,
         "total_days": sub.total_days,
         "expiring_soon": sub.expiring_soon,
-        "renewal": None if sub.lifetime else {
+        # اشتراکِ کافه‌بازار که خودِ بازار تمدیدش می‌کند (لغو هم فقط از خودِ بازار)
+        "auto_renews": sub.auto_renews,
+        "renewal": None if sub.lifetime or sub.auto_renews else {
             "plan_code": renew.code,
             "plan_title": renew.title,
             "amount_toman": renew.price_toman,
@@ -106,6 +112,7 @@ def payment_payload(payment: Payment) -> dict:
         "status_label": "هدیه" if payment.source == Payment.Source.GIFT and payment.status == Payment.Status.PAID
         else payment.get_status_display(),
         "is_gift": payment.source == Payment.Source.GIFT,
+        "gateway": payment.gateway,
         "created_at_fa": _fa_datetime(payment.created_at),
         "paid_at_fa": _fa_datetime(payment.paid_at),
         "trans_id": payment.trans_id,
@@ -194,6 +201,29 @@ class CheckoutView(APIView):
             "gateway": payment.gateway,
             "pay_url": pay_url(payment),
         }, status=status.HTTP_201_CREATED)
+
+
+class BazaarVerifyView(APIView):
+    """
+    POST {childId, plan, purchaseToken, orderId?} — اپِ اندروید بعد از خرید (یا بازیابیِ خرید) با Poolakey
+    توکن را می‌فرستد؛ سرور با APIِ کافه‌بازار تأییدش می‌کند → وضعیتِ تازه‌ی اشتراکِ همان فرزند.
+    """
+
+    permission_classes = [IsParent]
+
+    def post(self, request):
+        child = is_linked(request.user, request.data.get("child_id"))
+        if child is None:
+            return _error("این فرزند به حسابِ شما وصل نیست.", status.HTTP_404_NOT_FOUND)
+        plan = Plan.objects.filter(code=request.data.get("plan")).first()
+        if plan is None:
+            return _error("پلنِ انتخاب‌شده پیدا نشد.", status.HTTP_400_BAD_REQUEST)
+        try:
+            payment = verify_bazaar_purchase(request.user, child, plan, str(request.data.get("purchase_token") or ""),
+                                             str(request.data.get("order_id") or ""))
+        except CheckoutError as exc:
+            return _error(exc.message, exc.status)
+        return Response({"payment": payment_payload(payment), "subscription": status_payload(child)})
 
 
 class CallbackView(APIView):

@@ -25,6 +25,11 @@ app.conf.beat_schedule = {
         "task": "apps.billing.tasks.reconcile_pending",
         "schedule": crontab(minute="*/3"),
     },
+    # تمدیدِ خودکارِ اشتراک‌های کافه‌بازار نزدیکِ پایانِ هر دوره
+    "billing-refresh-bazaar": {
+        "task": "apps.billing.tasks.refresh_bazaar_subscriptions",
+        "schedule": crontab(minute=17, hour="*/3"),
+    },
     # یادآوریِ تمدید از ۷ روز پیش از پایانِ اشتراک
     "billing-notify-expiring-daily": {
         "task": "apps.billing.tasks.notify_expiring",

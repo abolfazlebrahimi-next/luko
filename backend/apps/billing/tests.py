@@ -658,3 +658,155 @@ class LifetimeAccessTests(BillingTestBase):
         self.assertFalse(is_premium(self.child))
         self.parent.groups.add(self.lifetime_group())
         self.assertTrue(is_premium(self.child))
+
+
+class FakeBazaar:
+    """APIِ توسعه‌دهندگانِ کافه‌بازار: وضعیتِ اشتراک با توکنِ پیشخان در هدر."""
+
+    def __init__(self):
+        self.subs = {}      # (sku, token) → [initiation, validUntil, autoRenewing]
+        self.calls = []
+        self.down = False
+
+    def add(self, sku, token, *, days=30, renewing=True, started=None):
+        start = started or timezone.now()
+        self.subs[(sku, token)] = [start, start + timedelta(days=days), renewing]
+
+    def get(self, url, headers=None, timeout=None):
+        self.calls.append(url)
+        if self.down:
+            raise requests.ConnectionError("down")
+        if headers.get("CAFEBAZAAR-PISHKHAN-API-SECRET") != "bz-secret":
+            return FakeResponse(401, {"error": "unauthorized"})
+        parts = url.rstrip("/").split("/")
+        package, sku, token = parts[-5], parts[-3], requests.utils.unquote(parts[-1])
+        if package != "ir.luko.parent":
+            return FakeResponse(400, {"error": "invalid_value", "error_description": "Package name is not valid"})
+        sub = self.subs.get((sku, token))
+        if sub is None:
+            return FakeResponse(404, {"error": "not_found", "error_description": "The requested purchase is not found!"})
+        return FakeResponse(200, {"kind": "androidpublisher#subscriptionPurchase",
+                                  "initiationTimestampMsec": int(sub[0].timestamp() * 1000),
+                                  "validUntilTimestampMsec": int(sub[1].timestamp() * 1000),
+                                  "autoRenewing": sub[2], "linkedSubscriptionToken": None})
+
+
+@override_settings(BAZAAR_API_TOKEN="bz-secret", BAZAAR_PACKAGE_NAME="ir.luko.parent",
+                   BAZAAR_SKUS={"monthly": "luko_monthly", "yearly": "luko_yearly"})
+class BazaarTests(BillingTestBase):
+    """خرید از داخلِ اپِ اندرویدِ بازار: فقط با تأییدِ خودِ کافه‌بازار، یک توکن یک فرزند، تمدیدِ خودکار."""
+
+    TOKEN = "SDu8Jb" + "x" * 300 + "/+="
+
+    def setUp(self):
+        super().setUp()
+        self.bazaar = FakeBazaar()
+        patcher = mock.patch("apps.billing.bazaar.requests.get", side_effect=self.bazaar.get)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def verify(self, token=None, plan="monthly", child=None, api=None):
+        return (api or self.api).post("/api/v1/billing/bazaar/verify", {
+            "childId": str((child or self.child).id), "plan": plan,
+            "purchaseToken": token or self.TOKEN, "orderId": "ORD-77"}, format="json")
+
+    def test_plans_expose_bazaar_sku(self):
+        plans = {p["code"]: p for p in self.api.get("/api/v1/billing/plans").json()["data"]}
+        self.assertEqual((plans["monthly"]["bazaarSku"], plans["yearly"]["bazaarSku"]), ("luko_monthly", "luko_yearly"))
+
+    def test_verified_purchase_activates_until_bazaar_valid_until(self):
+        self.bazaar.add("luko_monthly", self.TOKEN, days=30)
+        res = self.verify()
+        self.assertEqual(res.status_code, 200, res.content)
+        data = res.json()["data"]
+        self.assertEqual((data["subscription"]["status"], data["subscription"]["autoRenews"]), ("active", True))
+        self.assertIsNone(data["subscription"]["renewal"])        # تمدید با خودِ بازار است، نه زیبال
+        self.assertFalse(data["subscription"]["expiringSoon"])
+        payment = Payment.objects.get(child=self.child)
+        self.assertEqual((payment.gateway, payment.status, payment.trans_id, payment.amount_toman),
+                         ("bazaar", "paid", "ORD-77", 199_000))
+        self.assertEqual(payment.gateway_response["purchaseToken"], self.TOKEN)
+        self.assertEqual(payment.token, services.bazaar_key(self.TOKEN))
+        self.assertLess(abs((payment.ends_at - self.bazaar.subs[("luko_monthly", self.TOKEN)][1]).total_seconds()), 1)
+        # توکن URL-encode رفت و هدرِ پیشخان همراهش بود
+        self.assertIn("/applications/ir.luko.parent/subscriptions/luko_monthly/purchases/SDu8Jb", self.bazaar.calls[0])
+        self.assertNotIn("/+=", self.bazaar.calls[0])
+        self.assertTrue(Notification.objects.filter(user=self.guardian, dedup_key=f"payment:{payment.id}").exists())
+
+    def test_resending_same_token_is_idempotent(self):
+        self.bazaar.add("luko_monthly", self.TOKEN)
+        self.verify()
+        self.assertEqual(self.verify().status_code, 200)
+        guardian = APIClient()
+        guardian.force_authenticate(self.guardian)
+        self.assertEqual(self.verify(api=guardian).status_code, 200)
+        self.assertEqual(Payment.objects.filter(child=self.child).count(), 1)
+
+    def test_token_cannot_be_reused_for_another_child(self):
+        self.bazaar.add("luko_monthly", self.TOKEN)
+        second = User.objects.create(phone="09120000005", role=User.Role.STUDENT)
+        ParentChild.objects.create(parent=self.parent, child=second)
+        self.verify()
+        self.assertEqual(self.verify(child=second).status_code, 409)
+        self.assertFalse(services.subscription(second).active)
+
+    def test_rejected_unknown_expired_or_wrong_plan(self):
+        self.assertEqual(self.verify().status_code, 400)                  # بازار نمی‌شناسد
+        self.bazaar.add("luko_monthly", "old", days=30, started=timezone.now() - timedelta(days=40))
+        self.assertEqual(self.verify("old").status_code, 400)             # تمام شده
+        self.bazaar.add("luko_monthly", "cheap")
+        self.assertEqual(self.verify("cheap", plan="yearly").status_code, 400)   # SKU با پلن نمی‌خواند
+        self.assertEqual(self.verify("x" * 1001).status_code, 400)
+        self.assertEqual(self.verify(child=self.stranger_child).status_code, 404)
+        self.assertFalse(Payment.objects.exists())
+
+    def test_bazaar_down_is_retryable_and_nothing_is_saved(self):
+        self.bazaar.add("luko_monthly", self.TOKEN)
+        self.bazaar.down = True
+        self.assertEqual(self.verify().status_code, 503)
+        self.assertFalse(Payment.objects.exists())
+        self.bazaar.down = False
+        self.assertEqual(self.verify().status_code, 200)
+
+    @override_settings(BAZAAR_API_TOKEN="")
+    def test_not_configured(self):
+        self.assertEqual(self.verify().status_code, 400)
+        self.assertEqual(self.bazaar.calls, [])
+
+    def test_lifetime_child_is_not_charged(self):
+        from django.contrib.auth.models import Group
+
+        self.parent.groups.add(Group.objects.get_or_create(name=services.LIFETIME_GROUP)[0])
+        self.bazaar.add("luko_monthly", self.TOKEN)
+        self.assertEqual(self.verify().status_code, 400)
+
+    def test_auto_renewal_extends_and_cancel_brings_back_reminders(self):
+        self.bazaar.add("luko_monthly", self.TOKEN, days=3)
+        self.verify()
+        payment = Payment.objects.get(child=self.child)
+        sync_notifications(self.parent)
+        self.assertFalse(Notification.objects.filter(user=self.parent, dedup_key__startswith="sub-ending").exists())
+        # بازار تمدید کرد → کارِ زمان‌بندی‌شده دوره را جلو می‌برد
+        self.bazaar.subs[("luko_monthly", self.TOKEN)][1] += timedelta(days=30)
+        self.assertEqual(tasks.refresh_bazaar_subscriptions(), 1)
+        payment.refresh_from_db()
+        self.assertGreater(payment.ends_at, timezone.now() + timedelta(days=32))
+        self.assertEqual(services.subscription(self.child).days_left, 33)
+        # والد تمدید را در بازار لغو کرد → دیگر خودکار نیست؛ نزدیکِ پایان یادآوری می‌گیرد
+        self.bazaar.subs[("luko_monthly", self.TOKEN)][1] -= timedelta(days=28)
+        self.bazaar.subs[("luko_monthly", self.TOKEN)][2] = False
+        self.verify()                                     # بازیابیِ خرید از اپ هم وضعیت را تازه می‌کند
+        sub = services.subscription(self.child)
+        self.assertFalse(sub.auto_renews)
+        self.assertGreater(payment.ends_at, timezone.now() + timedelta(days=32))  # روزهای پرداخت‌شده نمی‌سوزد
+        self.assertEqual(tasks.refresh_bazaar_subscriptions(), 0)   # خودکار نیست → دیگر پرسیده نمی‌شود
+
+    def test_payments_list_marks_gateway(self):
+        self.bazaar.add("luko_monthly", self.TOKEN)
+        self.verify()
+        row = self.api.get("/api/v1/billing/payments").json()["data"][0]
+        self.assertEqual((row["gateway"], row["statusLabel"]), ("bazaar", "پرداخت‌شده"))
+
+    @override_settings(PAYMENT_GATEWAY="bazaar")
+    def test_bazaar_is_never_the_website_gateway(self):
+        self.assertEqual(services.active_gateway(), "zibal")

@@ -1,5 +1,5 @@
 import { apiClient } from '@/lib/api';
-import type { CheckoutResult, ChildSubscription, Payment, Plan } from './types';
+import type { BazaarVerifyResult, CheckoutResult, ChildSubscription, Payment, Plan } from './types';
 
 /** APIهای اشتراک؛ پاکتِ {data} همین‌جا باز می‌شود. */
 export const billingApi = {
@@ -30,6 +30,12 @@ export const billingApi = {
 
   async checkout(childId: string, plan: string): Promise<CheckoutResult> {
     const { data } = await apiClient.post('/billing/checkout', { childId, plan });
+    return data.data;
+  },
+
+  /** خریدِ اپِ کافه‌بازار → سرور با APIِ بازار تأیید می‌کند → اشتراکِ همان فرزند */
+  async verifyBazaar(childId: string, plan: string, purchaseToken: string, orderId = ''): Promise<BazaarVerifyResult> {
+    const { data } = await apiClient.post('/billing/bazaar/verify', { childId, plan, purchaseToken, orderId });
     return data.data;
   },
 };

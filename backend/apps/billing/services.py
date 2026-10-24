@@ -21,6 +21,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import math
 import re
@@ -36,7 +37,7 @@ from django.utils import timezone
 
 from apps.accounts.models import User
 
-from . import vandar, zibal
+from . import bazaar, vandar, zibal
 from .models import Payment, Plan
 
 log = logging.getLogger("luko.billing")
@@ -73,10 +74,12 @@ class Subscription:
     last_paid: Payment | None     # آخرین خرید — مبنای صورت‌حسابِ تمدید
     #: اشتراکِ همیشگی (ادمین‌ها و گروهِ «اشتراکِ همیشگی») — بی‌تاریخِ پایان، بی‌تمدید، بی‌یادآوری
     lifetime: bool = False
+    #: دوره‌ی آخر اشتراکِ کافه‌بازار است که خودکار تمدید می‌شود — نه یادآوری، نه صورت‌حسابِ تمدید
+    auto_renews: bool = False
 
     @property
     def expiring_soon(self) -> bool:
-        return self.active and not self.lifetime and self.days_left <= EXPIRY_NOTICE_DAYS
+        return self.active and not self.lifetime and not self.auto_renews and self.days_left <= EXPIRY_NOTICE_DAYS
 
 
 # ------------------------------------------------------------------ اشتراکِ همیشگی
@@ -116,7 +119,10 @@ def subscription(child: User, now: datetime | None = None) -> Subscription:
     chain_start = min(current.starts_at, now)
     days_left = max(1, math.ceil((ends_at - now) / DAY))
     total_days = max(days_left, math.ceil((ends_at - chain_start) / DAY))
-    return Subscription(True, current, ends_at, chain_start, days_left, total_days, last_paid)
+    last = max(future, key=lambda p: p.ends_at)
+    auto_renews = last.gateway == Payment.Gateway.BAZAAR and bool(last.gateway_response.get("autoRenewing"))
+    return Subscription(True, current, ends_at, chain_start, days_left, total_days, last_paid,
+                        auto_renews=auto_renews)
 
 
 def renewal_plan(sub: Subscription) -> Plan | None:
@@ -155,7 +161,8 @@ GATEWAY_ERRORS = (vandar.VandarError, zibal.ZibalError)
 def active_gateway() -> str:
     """درگاهِ پرداخت‌های تازه؛ مقدارِ ناشناخته یعنی زیبال"""
     gateway = (settings.PAYMENT_GATEWAY or "").strip().lower()
-    return gateway if gateway in Payment.Gateway.values else Payment.Gateway.ZIBAL
+    # کافه‌بازار درگاهِ سایت نیست؛ خریدش فقط از داخلِ اپ و با verify_bazaar_purchase است
+    return gateway if gateway in (Payment.Gateway.ZIBAL, Payment.Gateway.VANDAR) else Payment.Gateway.ZIBAL
 
 
 def callback_url(gateway: str = Payment.Gateway.VANDAR) -> str:
@@ -525,6 +532,113 @@ def _zibal_reconcile(payment: Payment, age: timedelta) -> None:
     if info.get("status") is None and age < timedelta(hours=2):
         return          # شناسه را نشناخت؛ شاید زیبال هنوز ثبتش نکرده
     _zibal_apply(payment, info, allow_verify=True)
+
+
+# ------------------------------------------------------------------ کافه‌بازار
+#: توکنِ خریدِ بازار تا ۱۰۰۰ نویسه است؛ ستونِ token فقط ۱۲۸ — اثرِ انگشتش یکتا می‌ماند و خودِ توکن در gateway_response
+BAZAAR_TOKEN_MAX = 1000
+
+
+def bazaar_key(purchase_token: str) -> str:
+    return "bz:" + hashlib.sha256(purchase_token.encode()).hexdigest()
+
+
+def _bazaar_check(sku: str, purchase_token: str) -> bazaar.BazaarSubscription:
+    try:
+        return bazaar.subscription_status(sku, purchase_token)
+    except bazaar.BazaarError as exc:
+        log.warning("bazaar verify %s: %s", sku, exc.message)
+        if exc.transient:
+            raise CheckoutError("کافه‌بازار الان جواب نمی‌دهد؛ چند دقیقه‌ی دیگر دوباره تلاش کنید.", 503) from exc
+        raise CheckoutError("کافه‌بازار این خرید را تأیید نکرد.", 400) from exc
+
+
+def _bazaar_extend(payment: Payment, sub: bazaar.BazaarSubscription) -> bool:
+    """تمدیدِ خودکار یا لغوِ تمدید در بازار → همان ردیف. True اگر چیزی عوض شد."""
+    data = {**payment.gateway_response, "autoRenewing": sub.auto_renewing, "bazaar": sub.raw}
+    changed = data != payment.gateway_response
+    payment.gateway_response = data
+    if sub.valid_until > payment.ends_at:
+        payment.ends_at = sub.valid_until
+        changed = True
+    if changed:
+        payment.save(update_fields=["gateway_response", "ends_at", "updated_at"])
+    return changed
+
+
+def verify_bazaar_purchase(parent: User, child: User, plan: Plan, purchase_token: str,
+                           order_id: str = "") -> Payment:
+    """
+    خریدِ اشتراکی که اپِ اندروید با Poolakey از کافه‌بازار کرد → دوره‌ی اشتراک. فقط حرفِ خودِ بازار ملاک است
+    (توکن + SKUِ همین پلن)؛ دوره همان بازه‌ای است که بازار می‌گوید (شروعِ خرید تا validUntil)، چون تمدیدش را هم
+    بازار انجام می‌دهد. چندبار فرستادنِ یک توکن بی‌خطر است (بازیابیِ خرید، تمدید)؛ هر توکن فقط مالِ یک فرزند است.
+    """
+    purchase_token = (purchase_token or "").strip()
+    if not purchase_token or len(purchase_token) > BAZAAR_TOKEN_MAX:
+        raise CheckoutError("شناسه‌ی خرید نامعتبر است.")
+    sku = bazaar.sku_for(plan.code)
+    key = bazaar_key(purchase_token)
+    existing = Payment.objects.filter(token=key).first()
+    if existing is not None and existing.child_id != child.pk:
+        raise CheckoutError("این خرید پیش‌تر برای فرزندِ دیگری ثبت شده است.", 409)
+    # خریدِ تازه فقط برای پلنِ فروشی؛ بازیابیِ خریدِ قبلی حتی اگر پلن بعداً از فروش افتاده باشد
+    if existing is None and (not plan.is_active or not sku):
+        raise CheckoutError("این پلن در کافه‌بازار فروخته نمی‌شود.")
+    if existing is None and lifetime_access(child):
+        raise CheckoutError("این فرزند اشتراکِ همیشگی دارد و خرید لازم نیست.")
+    sub = _bazaar_check(existing.gateway_response.get("sku", sku) if existing else sku, purchase_token)
+    if existing is not None:
+        with transaction.atomic():
+            payment = Payment.objects.select_for_update().get(pk=existing.pk)
+            _bazaar_extend(payment, sub)
+        return payment
+
+    now = timezone.now()
+    if sub.valid_until <= now:
+        raise CheckoutError("این اشتراک در کافه‌بازار تمام شده است.")
+    response = {"sku": sku, "purchaseToken": purchase_token, "orderId": str(order_id or "")[:64],
+                "autoRenewing": sub.auto_renewing, "bazaar": sub.raw}
+    try:
+        with transaction.atomic():
+            User.objects.select_for_update().filter(pk=child.pk).first()
+            payment = Payment.objects.create(
+                payer=parent, child=child, plan=plan, plan_title=plan.title, gateway=Payment.Gateway.BAZAAR,
+                duration_days=plan.duration_days, amount_toman=plan.price_toman, amount_rial=plan.price_rial,
+                payer_phone=parent.phone, child_name=child_name(child),
+                factor_number=f"BZ{timezone.localtime():%y%m%d}{secrets.randbelow(10**6):06d}",
+                token=key, trans_id=str(order_id or "")[:40], status=Payment.Status.PAID,
+                message="خرید از کافه‌بازار", gateway_response=response,
+                paid_at=now, starts_at=min(sub.started_at, now), ends_at=sub.valid_until,
+            )
+            from .notices import payment_succeeded
+
+            payment_succeeded(payment)
+    except IntegrityError:
+        # همین توکن هم‌زمان از درخواستِ دیگری ثبت شد (یا شماره‌ی فاکتورِ تکراری؛ بسیار نادر)
+        payment = Payment.objects.filter(token=key, child=child).first()
+        if payment is None:
+            raise CheckoutError("ثبتِ خرید انجام نشد؛ دوباره تلاش کنید.", 500)
+        return payment
+    log.info("bazaar %s paid: child %s until %s", payment.factor_number, child.pk, payment.ends_at)
+    return payment
+
+
+def refresh_bazaar(payment_id: int) -> Payment | None:
+    """وضعیتِ تازه‌ی یک اشتراکِ بازار (کارِ زمان‌بندی‌شده): تمدیدِ خودکار ends_at را جلو می‌برد."""
+    payment = Payment.objects.filter(pk=payment_id, gateway=Payment.Gateway.BAZAAR,
+                                     status=Payment.Status.PAID).first()
+    token = payment.gateway_response.get("purchaseToken") if payment else None
+    if not token:
+        return payment
+    try:
+        sub = bazaar.subscription_status(payment.gateway_response.get("sku", ""), token)
+    except bazaar.BazaarError as exc:
+        log.warning("bazaar refresh %s: %s", payment.factor_number, exc.message)
+        return payment
+    with transaction.atomic():
+        payment = Payment.objects.select_for_update().get(pk=payment.pk)
+        _bazaar_extend(payment, sub)
+    return payment
 
 
 # ------------------------------------------------------------------ هدیه

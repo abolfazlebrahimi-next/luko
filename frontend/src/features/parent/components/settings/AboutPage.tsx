@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { HiOutlineChevronDown, HiOutlineEnvelope, HiOutlineGlobeAlt, HiOutlineHeart } from 'react-icons/hi2';
 import { LukoLogo } from '@/components/ui/LukoLogo/LukoLogo';
+import { BAZAAR_BUILD } from '@/features/billing/bazaar';
 import { TrustSeals } from './TrustSeals';
 import { useSettingsEnv } from './SettingsContext';
 import form from './form.module.css';
@@ -17,7 +18,9 @@ const RULES: { title: string; body: string }[] = [
   },
   {
     title: 'پرداخت و بازگشتِ وجه',
-    body: 'پرداخت از درگاهِ امنِ زیبال (شاپرک) انجام می‌شود و اطلاعاتِ کارت به لوکو نمی‌رسد. اگر پرداخت انجام شد ولی اشتراک فعال نشد، مبلغ طبقِ قوانینِ شاپرک برمی‌گردد یا اشتراک دستی فعال می‌شود؛ کافی است با دسته‌ی «اشتراک و پرداخت» تیکت بزنید.',
+    body: BAZAAR_BUILD
+      ? 'خریدِ اشتراک در این اپ از راهِ کافه‌بازار است و اطلاعاتِ پرداخت به لوکو نمی‌رسد. اشتراک در پایانِ هر دوره خودکار تمدید می‌شود و لغوِ تمدید از بخشِ «اشتراک‌ها»ی کافه‌بازار است؛ تا پایانِ دوره‌ی پرداخت‌شده فعال می‌ماند. اگر پرداخت انجام شد ولی اشتراک فعال نشد، صفحه‌ی اشتراک را دوباره باز کنید یا با دسته‌ی «اشتراک و پرداخت» تیکت بزنید.'
+      : 'پرداخت از درگاهِ امنِ زیبال (شاپرک) انجام می‌شود و اطلاعاتِ کارت به لوکو نمی‌رسد. اگر پرداخت انجام شد ولی اشتراک فعال نشد، مبلغ طبقِ قوانینِ شاپرک برمی‌گردد یا اشتراک دستی فعال می‌شود؛ کافی است با دسته‌ی «اشتراک و پرداخت» تیکت بزنید.',
   },
 ];
 
@@ -65,11 +68,14 @@ export function AboutPage() {
               <HiOutlineEnvelope aria-hidden /> تیکتِ پشتیبانی: پاسخِ مکتوب و ماندگار
             </button>
           </li>
-          <li>
-            <a href="https://my.luko.ir" target="_blank" rel="noopener">
-              <HiOutlineGlobeAlt aria-hidden /> <span dir="ltr">my.luko.ir</span>
-            </a>
-          </li>
+          {/* اپِ کافه‌بازار پیوند به سایت ندارد (سایت اشتراک را با درگاهِ دیگر می‌فروشد؛ قانونِ پرداختِ بازار) */}
+          {!BAZAAR_BUILD && (
+            <li>
+              <a href="https://my.luko.ir" target="_blank" rel="noopener">
+                <HiOutlineGlobeAlt aria-hidden /> <span dir="ltr">my.luko.ir</span>
+              </a>
+            </li>
+          )}
         </ul>
         <p className={styles.made}><HiOutlineHeart aria-hidden /> ساخته‌شده با عشق برای بچه‌های ایران</p>
       </section>

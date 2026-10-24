@@ -14,7 +14,8 @@ import {
 import { CrownIcon } from '@/components/ui/icons';
 import { apiMessage, faNumber, toman } from '@/features/billing/format';
 import type { ChildSubscription, Payment, Plan } from '@/features/billing/types';
-import { useCheckout, usePayments, usePlans } from '@/features/billing/useBilling';
+import { BAZAAR_BUILD, BazaarError, bazaarAvailable } from '@/features/billing/bazaar';
+import { useBazaarPurchase, useBazaarRestore, useCheckout, usePayments, usePlans } from '@/features/billing/useBilling';
 import { Sheet } from '../shell/Sheet';
 import { TrustSeals } from './TrustSeals';
 import { childName, useSettingsEnv } from './SettingsContext';
@@ -62,6 +63,11 @@ export function BillingPage() {
   const [paying, setPaying] = useState<string | null>(null);
   const [loginSheet, setLoginSheet] = useState(false);
   const checkout = useCheckout();
+  const bazaarBuy = useBazaarPurchase();
+  /** اپِ کافه‌بازار: خرید فقط با پرداختِ بازار (قانونِ بازار)؛ بی پلِ اندروید خرید ممکن نیست */
+  const canBuyInApp = !BAZAAR_BUILD || env.guest || bazaarAvailable();
+  const childIds = useMemo(() => env.childList.map((item) => item.id), [env.childList]);
+  useBazaarRestore(BAZAAR_BUILD && !env.guest, plans, childIds);
   const invoiceRef = useRef<HTMLElement>(null);
 
   const sorted = useMemo(() => [...plans].sort((a, b) => a.durationDays - b.durationDays), [plans]);
@@ -90,14 +96,31 @@ export function BillingPage() {
       setLoginSheet(true);
       return;
     }
+    if (BAZAAR_BUILD) {
+      const plan = plans.find((p) => p.code === code);
+      if (bazaarBuy.isPending || !plan) return;
+      setPaying(code);
+      bazaarBuy.mutate({ childId: child!.id, plan });
+      return;
+    }
     if (checkout.isPending || checkout.isSuccess) return;
     setPaying(code);
     checkout.mutate({ childId: child!.id, plan: code });
   };
-  const going = checkout.isPending || checkout.isSuccess;
-  const payError = checkout.isError
-    ? <p className={form.error} role="alert">{apiMessage(checkout.error, 'رفتن به درگاه انجام نشد؛ دوباره تلاش کنید.')}</p>
-    : null;
+  const going = BAZAAR_BUILD ? bazaarBuy.isPending : checkout.isPending || checkout.isSuccess;
+  const goingLabel = BAZAAR_BUILD ? 'در حالِ خرید از کافه‌بازار…' : 'در حالِ انتقال به درگاه…';
+  const payError = BAZAAR_BUILD
+    ? bazaarBuy.isError && !(bazaarBuy.error instanceof BazaarError && bazaarBuy.error.cancelled)
+      ? <p className={form.error} role="alert">{bazaarBuy.error instanceof BazaarError ? bazaarBuy.error.message
+        : apiMessage(bazaarBuy.error, 'خرید انجام شد ولی تأییدش نرسید؛ چند دقیقه‌ی دیگر همین صفحه را دوباره باز کنید.')}</p>
+      : null
+    : checkout.isError
+      ? <p className={form.error} role="alert">{apiMessage(checkout.error, 'رفتن به درگاه انجام نشد؛ دوباره تلاش کنید.')}</p>
+      : null;
+  /** اشتراکِ فعالِ کافه‌بازار خودش تمدید می‌شود؛ خریدِ دوباره (از سایت یا اپ) پولِ دوباره است */
+  const autoRenews = Boolean(sub?.autoRenews);
+  /** در اپِ بازار دوره‌ی بازار از روزِ خرید شروع می‌شود، پس تا اشتراکِ فعلی رو به پایان نیست خرید بسته است */
+  const buyLocked = autoRenews || (BAZAAR_BUILD && sub?.status === 'active' && !sub.expiringSoon);
 
   if (!child) {
     return (
@@ -130,7 +153,7 @@ export function BillingPage() {
       <div className={styles.top}>
         <StatusHero sub={sub} name={name} />
 
-        {sub?.renewal ? (
+        {sub?.renewal && !buyLocked ? (
           <section ref={invoiceRef} className={styles.invoice} data-urgent={sub.status === 'free' || sub.expiringSoon || undefined}
             aria-label="صورت‌حسابِ تمدید">
             <header>
@@ -145,8 +168,8 @@ export function BillingPage() {
               <div data-total><dt>مبلغ</dt><dd>{toman(sub.renewal.amountToman)}</dd></div>
             </dl>
             {paying === sub.renewal.planCode && payError}
-            <button type="button" className={form.primary} disabled={going} onClick={() => pay(sub.renewal!.planCode)}>
-              {going && paying === sub.renewal.planCode ? 'در حالِ انتقال به درگاه…' : 'پرداخت و تمدید'}
+            <button type="button" className={form.primary} disabled={going || !canBuyInApp} onClick={() => pay(sub.renewal!.planCode)}>
+              {going && paying === sub.renewal.planCode ? goingLabel : BAZAAR_BUILD ? 'تمدید با کافه‌بازار' : 'پرداخت و تمدید'}
             </button>
           </section>
         ) : (
@@ -176,14 +199,32 @@ export function BillingPage() {
         </div>
         {activePlan && paying === activePlan.code && payError}
         {sub?.lifetime && <p className={styles.hint}>اشتراکِ {shortName} همیشگی است؛ خرید یا تمدید لازم نیست.</p>}
-        {activePlan && !sub?.lifetime && (
-          <button type="button" className={form.primary} disabled={going} onClick={() => pay(activePlan.code)}>
+        {autoRenews && !sub?.lifetime && (
+          <p className={styles.hint}>
+            اشتراکِ {shortName} از کافه‌بازار است و هر دوره خودکار تمدید می‌شود؛ خریدِ دوباره لازم نیست. لغوِ تمدید از
+            بخشِ «اشتراک‌ها»ی کافه‌بازار است.
+          </p>
+        )}
+        {BAZAAR_BUILD && !autoRenews && buyLocked && !sub?.lifetime && (
+          <p className={styles.hint}>اشتراکِ فعلیِ {shortName} تا {sub?.endsAtFa} فعال است؛ تمدید از یک هفته پیش از پایانش باز می‌شود.</p>
+        )}
+        {activePlan && !sub?.lifetime && !buyLocked && (
+          <button type="button" className={form.primary} disabled={going || !canBuyInApp} onClick={() => pay(activePlan.code)}>
             <CrownIcon size={18} strokeWidth={2} aria-hidden />
-            {going && paying === activePlan.code ? 'در حالِ انتقال به درگاه…'
+            {going && paying === activePlan.code ? goingLabel
               : `${sub?.status === 'active' ? 'تمدید با' : 'خریدِ'} اشتراکِ ${activePlan.title}، ${toman(activePlan.priceToman)}`}
           </button>
         )}
-        {sub?.status === 'active' && !sub.lifetime && <p className={styles.hint}>تمدید پشتِ اشتراکِ فعلی می‌نشیند؛ روزهای باقی‌مانده از دست نمی‌رود.</p>}
+        {!canBuyInApp && !buyLocked && !sub?.lifetime && (
+          <p className={styles.hint}>خرید در این نسخه‌ی اپ ممکن نیست؛ اپ را از کافه‌بازار به‌روز کنید و مطمئن شوید کافه‌بازار روی گوشی نصب است.</p>
+        )}
+        {BAZAAR_BUILD && !buyLocked && !sub?.lifetime && canBuyInApp && (
+          <p className={styles.hint}>
+            پرداخت با کافه‌بازار است. اشتراک از روزِ خرید شروع می‌شود و در پایانِ هر دوره با همین مبلغ خودکار تمدید
+            می‌شود؛ هر وقت بخواهید از بخشِ «اشتراک‌ها»ی کافه‌بازار لغوش می‌کنید و تا پایانِ دوره‌ی پرداخت‌شده فعال می‌ماند.
+          </p>
+        )}
+        {!BAZAAR_BUILD && sub?.status === 'active' && !sub.lifetime && !autoRenews && <p className={styles.hint}>تمدید پشتِ اشتراکِ فعلی می‌نشیند؛ روزهای باقی‌مانده از دست نمی‌رود.</p>}
         {sub?.renewal && (
           <details className={styles.compareMore}>
             <summary>با اشتراک چه چیزهایی باز است؟ <HiOutlineChevronDown aria-hidden /></summary>
@@ -203,10 +244,16 @@ export function BillingPage() {
         )}
       </section>
 
-      <div className={styles.trust}>
-        <p><HiOutlineShieldCheck aria-hidden /> پرداختِ امن با درگاهِ زیبال؛ پس از پرداخت به همین پنل برمی‌گردید.</p>
-        <TrustSeals />
-      </div>
+      {BAZAAR_BUILD ? (
+        <div className={styles.trust}>
+          <p><HiOutlineShieldCheck aria-hidden /> پرداخت از راهِ کافه‌بازار؛ اطلاعاتِ پرداخت به لوکو نمی‌رسد.</p>
+        </div>
+      ) : (
+        <div className={styles.trust}>
+          <p><HiOutlineShieldCheck aria-hidden /> پرداختِ امن با درگاهِ زیبال؛ پس از پرداخت به همین پنل برمی‌گردید.</p>
+          <TrustSeals />
+        </div>
+      )}
 
 
       <Sheet open={loginSheet} title="ورود لازم است" onClose={() => setLoginSheet(false)}>
@@ -254,6 +301,7 @@ function StatusHero({ sub, name }: { sub?: ChildSubscription; name: string }) {
         <span className={styles.chip}><CrownIcon size={13} strokeWidth={2.2} aria-hidden /> اشتراکِ {sub.planTitle}</span>
         <h2>{name}</h2>
         <p>{sub.lifetime ? 'اشتراکِ کامل، بی‌تاریخِ پایان.' : `تا ${sub.endsAtFa} فعال است.`}</p>
+        {sub.autoRenews && <p>با کافه‌بازار خودکار تمدید می‌شود.</p>}
         {sub.expiringSoon && (
           <p className={styles.warn}><HiOutlineExclamationTriangle aria-hidden /> کمتر از یک هفته مانده؛ برای قطع‌نشدن، تمدید کنید.</p>
         )}
@@ -288,6 +336,7 @@ function PaymentRow({ payment }: { payment: Payment }) {
     ['شماره‌ی فاکتور', payment.factorNumber],
     ['کدِ پیگیری', payment.transId],
     ['کارت', payment.cardNumber],
+    ['پرداخت', payment.gateway === 'bazaar' ? 'کافه‌بازار' : ''],
     ['دوره', payment.status === 'paid' ? `${payment.startsAtFa} تا ${payment.endsAtFa}` : ''],
     ['ثبت', payment.createdAtFa],
     ['پیام', payment.message],

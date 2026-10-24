@@ -257,6 +257,17 @@ SITE_URL = env("SITE_URL", f"https://{env('LUKO_DOMAIN', 'my.luko.ir')}")
 #: دامنه‌ای که درگاهِ زیبال برایش ثبت شده (کدِ پذیرنده‌ی لوکو: panel.luko.ir). callbackUrl باید روی همین باشد
 #: و زیبال صفحه‌ی پرداخت را فقط با Refererِ همین دامنه باز می‌کند؛ برای همین پرداخت از این دامنه شروع می‌شود
 ZIBAL_SITE_URL = env("ZIBAL_SITE_URL", "") or SITE_URL
+# پرداختِ درون‌برنامه‌ایِ کافه‌بازار (apps/billing/bazaar.py) — اپِ اندرویدِ منتشرشده در بازار اشتراک را فقط با
+# پرداختِ بازار می‌فروشد. توکنِ APIِ پیشخان فقط در .env سرور است.
+BAZAAR_PACKAGE_NAME = env("BAZAAR_PACKAGE_NAME", "")
+BAZAAR_API_TOKEN = env("BAZAAR_API_TOKEN", "")
+BAZAAR_BASE_URL = env("BAZAAR_BASE_URL", "https://pardakht.cafebazaar.ir/devapi/v2/api")
+BAZAAR_TIMEOUT = float(env("BAZAAR_TIMEOUT", "15"))
+#: کدِ پلن ← شناسه‌ی محصولِ اشتراک (SKU) در پیشخانِ بازار
+BAZAAR_SKUS = {
+    "monthly": env("BAZAAR_SKU_MONTHLY", "luko_monthly"),
+    "yearly": env("BAZAAR_SKU_YEARLY", "luko_yearly"),
+}
 #: سایتِ لندینگ که وبلاگ را از API عمومی می‌خواند (فقط همین‌ها CORS می‌گیرند)
 BLOG_CORS_ORIGINS = env_list("BLOG_CORS_ORIGINS", "https://luko.ir,https://www.luko.ir")
 

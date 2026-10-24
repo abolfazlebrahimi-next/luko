@@ -12,6 +12,7 @@ import { apiError } from '../../settingsApi';
 import { useChangePassword, usePasswordStatus } from '../../useSettings';
 import { ChildAccountCard } from '../children/ChildAccountCard';
 import { PhoneVerifyCard } from '../verify/PhoneVerifyCard';
+import { BAZAAR_BUILD } from '@/features/billing/bazaar';
 import { childName, useSettingsEnv } from './SettingsContext';
 import form from './form.module.css';
 import styles from './PrivacyPage.module.css';
@@ -20,7 +21,9 @@ const PROMISES = [
   { icon: HiOutlineLockClosed, text: 'نوشته‌های «صندوقچه‌ی رازها» روی دستگاهِ خودِ فرزند رمزنگاری می‌شوند؛ هیچ‌کس، حتی شما و تیمِ لوکو، آن‌ها را نمی‌بیند.' },
   { icon: HiOutlineUserGroup, text: 'هر والد فقط گزارشِ فرزندانِ وصل به حسابِ خودش را می‌بیند و هر وقت بخواهد دسترسی را قطع می‌کند.' },
   { icon: HiOutlineNoSymbol, text: 'به بچه‌ها تبلیغ نشان نمی‌دهیم و اطلاعاتِ شما و فرزندتان را به هیچ شرکتی نمی‌دهیم.' },
-  { icon: HiOutlineShieldCheck, text: 'رمزها رمزنگاری‌شده نگه داشته می‌شوند و پرداخت فقط از درگاهِ شاپرک است؛ اطلاعاتِ کارت به لوکو نمی‌رسد.' },
+  { icon: HiOutlineShieldCheck, text: BAZAAR_BUILD
+    ? 'رمزها رمزنگاری‌شده نگه داشته می‌شوند و خریدِ اشتراک از راهِ کافه‌بازار است؛ اطلاعاتِ پرداخت به لوکو نمی‌رسد.'
+    : 'رمزها رمزنگاری‌شده نگه داشته می‌شوند و پرداخت فقط از درگاهِ شاپرک است؛ اطلاعاتِ کارت به لوکو نمی‌رسد.' },
 ];
 
 /** حریم خصوصی و امنیت: رمز و شماره‌ی والد، رمز و شماره‌ی هر فرزند، و تعهدهای لوکو */

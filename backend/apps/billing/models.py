@@ -64,6 +64,7 @@ class Payment(TimeStampedModel):
     class Gateway(models.TextChoices):
         VANDAR = "vandar", "وندار"
         ZIBAL = "zibal", "زیبال"
+        BAZAAR = "bazaar", "کافه‌بازار"
 
     #: درگاهی که این پرداخت با آن ساخته شد؛ بازگشت، تأیید و پیگیری با همان است
     gateway = models.CharField(max_length=10, choices=Gateway.choices, default=Gateway.VANDAR,
