@@ -117,7 +117,9 @@ services:
     depends_on:
       db: { condition: service_healthy }
       redis: { condition: service_healthy }
-    command: celery -A config beat -l info --pidfile=/tmp/celerybeat.pid --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    # خاموشیِ ناگهانی pidfile را در /tmpِ همان کانتینر جا می‌گذارد و beat با «already running» در حلقه‌ی ری‌استارت می‌ماند
+    # (۲ آبان ۱۴۰۵: ۲۲ ری‌استارت و هیچ کارِ زمان‌بندی‌شده‌ای). پیش از شروع پاکش می‌کنیم.
+    command: sh -c "rm -f /tmp/celerybeat.pid && exec celery -A config beat -l info --pidfile=/tmp/celerybeat.pid --scheduler django_celery_beat.schedulers:DatabaseScheduler"
     healthcheck:
       # beat صفِ پاسخ ندارد. فایلِ زمان‌بندش را هر تیک به‌روز می‌کند،
       # پس تازه‌بودنِ همان فایل یعنی زمان‌بند زنده است.
