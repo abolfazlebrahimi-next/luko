@@ -146,6 +146,7 @@ services:
       # مسیرهای داشبوردِ مدیریت با نشانیِ پنهان (فقط روی سرور؛ نمونه: deploy/dashboard.example.conf)
       - ./deploy/dashboard.conf:/etc/nginx/snippets/dashboard.conf:ro
       - ./frontend/dist:/var/www/luko:ro          # خروجیِ `npm run build`
+      - ./beta/dist:/var/www/luko-beta:ro          # beta.luko.ir — شهرِ لوکو (NewDessineLuko)
       - static:/var/www/static:ro
       - media:/var/www/media:ro
     depends_on:
