@@ -12,6 +12,8 @@ import {
 import type { Child, ParentPreferences } from '../../types';
 import { Card, SectionTitle } from '../shell/Card';
 import styles from './SettingsView.module.css';
+import { ReferralCard } from './ReferralCard';
+import { isGuestParentPreview } from '../../demoMode';
 
 interface Props {
   parentName: string;
@@ -56,6 +58,8 @@ export function SettingsView({
           </div>
         </div>
       </Card>
+
+      {!isGuestParentPreview() && <ReferralCard children={childList} />}
 
       <SectionTitle>فرزندان</SectionTitle>
       <Card flush>

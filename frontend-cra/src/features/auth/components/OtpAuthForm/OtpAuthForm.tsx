@@ -26,6 +26,8 @@ interface Props {
 
 export function OtpAuthForm({ mode }: Props) {
   const navigate = useNavigate();
+  const referralCode = new URLSearchParams(window.location.search).get('ref') || '';
+  const authQuery = referralCode ? `?ref=${encodeURIComponent(referralCode)}` : '';
   const { setUser } = useAuth();
 
   const [step, setStep] = useState<'phone' | 'code'>('phone');
@@ -67,6 +69,8 @@ export function OtpAuthForm({ mode }: Props) {
       const { user } = await authApi.verifyOtp({
         phone,
         code,
+        role: referralCode ? 'parent' : undefined,
+        referralCode: referralCode || undefined,
         firstName: mode === 'register' ? firstName : undefined,
         lastName: mode === 'register' ? lastName : undefined,
       });
@@ -102,7 +106,7 @@ export function OtpAuthForm({ mode }: Props) {
     <form className={styles.form} onSubmit={handleSubmit}>
       <h1 className={styles.title}>لوکو</h1>
       <p className={styles.subtitle}>
-        {mode === 'register' ? 'ساخت حساب تازه' : 'شهر یادگیری و بازی!'}
+        {referralCode ? 'ثبت‌نام یا ورود والد با لینک دعوت' : mode === 'register' ? 'ساخت حساب تازه' : 'شهر یادگیری و بازی!'}
       </p>
 
       {step === 'phone' ? (
@@ -187,11 +191,11 @@ export function OtpAuthForm({ mode }: Props) {
       <p className={styles.footer}>
         {mode === 'login' ? (
           <>
-            حساب نداری؟ <Link to="/register">ثبت‌نام</Link>
+            حساب نداری؟ <Link to={`/register${authQuery}`}>ثبت‌نام</Link>
           </>
         ) : (
           <>
-            حساب داری؟ <Link to="/login">ورود</Link>
+            حساب داری؟ <Link to={`/login${authQuery}`}>ورود</Link>
           </>
         )}
       </p>

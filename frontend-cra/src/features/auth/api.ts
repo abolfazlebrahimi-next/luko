@@ -15,6 +15,8 @@ export interface VerifyOtpPayload {
   code: string;
   firstName?: string;
   lastName?: string;
+  role?: 'parent';
+  referralCode?: string;
 }
 
 export interface VerifyOtpResult {

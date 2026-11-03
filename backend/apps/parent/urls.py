@@ -1,8 +1,10 @@
 from django.urls import path
 
-from . import account, views
+from . import account, views, referrals
 
 urlpatterns = [
+    path("referral", referrals.ReferralView.as_view(), name="parent-referral"),
+    path("referral/rewards/<int:reward_id>/redeem", referrals.RedeemReferralRewardView.as_view(), name="referral-redeem"),
     path("children", views.ChildrenView.as_view(), name="parent-children"),
     path("children/<int:child_id>", views.ChildDetailView.as_view(), name="parent-child"),
     path("children/<int:child_id>/profile", account.ChildProfileView.as_view(), name="parent-child-profile"),

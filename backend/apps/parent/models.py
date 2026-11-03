@@ -118,3 +118,33 @@ class Notification(TimeStampedModel):
 
     def __str__(self):
         return f"{self.user} · {self.title}"
+
+
+class ReferralCode(TimeStampedModel):
+    parent = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="referral_code")
+    code = models.CharField(max_length=64, unique=True)
+
+
+class Referral(TimeStampedModel):
+    referrer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="referrals_sent")
+    referred = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="referral_received")
+    first_purchase = models.OneToOneField("billing.Payment", null=True, blank=True, on_delete=models.PROTECT)
+
+    class Meta:
+        constraints = [models.CheckConstraint(condition=~models.Q(referrer=models.F("referred")), name="referral_not_self")]
+
+
+class ReferralReward(TimeStampedModel):
+    class Kind(models.TextChoices):
+        REFERRER_JOIN = "referrer_join", "ثبت‌نام دوست"
+        REFERRED_JOIN = "referred_join", "هدیه دعوت"
+        PURCHASE = "purchase", "خرید دوست"
+
+    referral = models.ForeignKey(Referral, on_delete=models.PROTECT, related_name="rewards")
+    recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="referral_rewards")
+    kind = models.CharField(max_length=20, choices=Kind.choices)
+    days = models.PositiveSmallIntegerField()
+    payment = models.OneToOneField("billing.Payment", null=True, blank=True, on_delete=models.PROTECT, related_name="referral_reward")
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["referral", "kind"], name="unique_referral_reward_kind")]

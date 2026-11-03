@@ -72,7 +72,7 @@ export default function ParentPanel() {
   const [sheet, setSheet] = useState<SheetKind | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [pendingChild, setPendingChild] = useState<Child | null>(null);
-  const [form, setForm] = useState({ phone: '', firstName: '', grade: '1', school: '' });
+  const [form, setForm] = useState({ phone: '', firstName: '', grade: '1', school: '', password: '' });
   const [message, setMessage] = useState('');
 
   const children = useChildren();
@@ -147,9 +147,14 @@ export default function ParentPanel() {
       setToast('شمارهٔ موبایل باید ۱۱ رقم و با ۰۹ شروع شود.');
       return;
     }
+    if (form.password.length < 6) {
+      setToast('رمز فرزند باید دست‌کم ۶ نویسه باشد.');
+      return;
+    }
     addChild.mutate(
       {
         phone: form.phone.trim(),
+        password: form.password,
         firstName: form.firstName.trim() || undefined,
         grade: Number(form.grade),
         school: form.school.trim() || undefined,
@@ -157,7 +162,7 @@ export default function ParentPanel() {
       {
         onSuccess: (child) => {
           setSheet(null);
-          setForm({ phone: '', firstName: '', grade: '1', school: '' });
+          setForm({ phone: '', firstName: '', grade: '1', school: '', password: '' });
           setChildId(child.id);
           setToast('فرزند به حساب شما اضافه شد');
         },
@@ -394,6 +399,11 @@ export default function ParentPanel() {
             value={form.phone}
             onChange={(event) => setForm({ ...form, phone: event.target.value })}
           />
+        </label>
+        <label className={styles.field}>
+          رمز ورود فرزند (حداقل ۶ نویسه)
+          <input type="password" autoComplete="new-password" value={form.password}
+            onChange={(event) => setForm({ ...form, password: event.target.value })} />
         </label>
         <label className={styles.field}>
           نام (اختیاری)
