@@ -45,6 +45,7 @@ export const parentApi = {
 
   async addChild(payload: {
     phone: string;
+    password: string;
     firstName?: string;
     lastName?: string;
     grade?: number;

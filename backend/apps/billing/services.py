@@ -292,6 +292,8 @@ def _activate(payment: Payment, data: dict) -> None:
     from .notices import payment_succeeded
 
     payment_succeeded(payment)
+    from apps.parent.referrals import reward_purchase
+    reward_purchase(payment)
 
 
 def settle(payment: Payment) -> None:
@@ -613,6 +615,8 @@ def verify_bazaar_purchase(parent: User, child: User, plan: Plan, purchase_token
             from .notices import payment_succeeded
 
             payment_succeeded(payment)
+            from apps.parent.referrals import reward_purchase
+            reward_purchase(payment)
     except IntegrityError:
         # همین توکن هم‌زمان از درخواستِ دیگری ثبت شد (یا شماره‌ی فاکتورِ تکراری؛ بسیار نادر)
         payment = Payment.objects.filter(token=key, child=child).first()
